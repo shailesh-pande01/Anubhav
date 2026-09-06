@@ -63,18 +63,47 @@ class ProfileRepository {
         }
     }
 
-    suspend fun uploadProfileImage(userId: String, imageBytes: ByteArray): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun uploadProfileImage(
+        userId: String,
+        imageBytes: ByteArray,
+        oldAvatarUrl: String? = null
+    ): Result<String> = withContext(Dispatchers.IO) {
         try {
             val bucket = client.storage.from("profile-images")
-            val path = "${userId}/avatar_${System.currentTimeMillis()}.jpg"
+            val path = "${userId}/avatar.jpg"
             bucket.upload(path, imageBytes) {
                 upsert = true
             }
-            val publicUrl = bucket.publicUrl(path)
+            // Append a cache-busting timestamp parameter so Coil/Compose instantly reflects updates
+            // while Supabase Storage stores only the single overwritten object ${userId}/avatar.jpg.
+            val basePublicUrl = bucket.publicUrl(path)
+            val publicUrl = "$basePublicUrl?t=${System.currentTimeMillis()}"
+
+            // Safely prune legacy timestamped avatar file if one was previously stored
+            if (!oldAvatarUrl.isNullOrBlank()) {
+                cleanUpLegacyAvatarIfPresent(userId, oldAvatarUrl)
+            }
+
             Result.success(publicUrl)
         } catch (e: Exception) {
             android.util.Log.e("ProfileRepository", "Failed to upload profile image to storage: ${e.message}", e)
             Result.failure(e)
+        }
+    }
+
+    private suspend fun cleanUpLegacyAvatarIfPresent(userId: String, oldAvatarUrl: String) {
+        try {
+            // Match legacy patterns like .../profile-images/<userId>/avatar_<timestamp>.jpg
+            val legacyPattern = Regex("""profile-images[/\\]${Regex.escape(userId)}[/\\](avatar_\d+\.jpg)""")
+            val match = legacyPattern.find(oldAvatarUrl)
+            if (match != null) {
+                val filename = match.groupValues[1]
+                val oldPath = "$userId/$filename"
+                android.util.Log.i("ProfileRepository", "Pruning obsolete legacy avatar: $oldPath")
+                client.storage.from("profile-images").delete(oldPath)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.w("ProfileRepository", "Non-critical error cleaning legacy avatar: ${t.message}")
         }
     }
 }

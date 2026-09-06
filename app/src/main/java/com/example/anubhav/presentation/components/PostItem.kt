@@ -54,7 +54,9 @@ fun PostItem(
     post: PostWithAuthor,
     onLikeClick: () -> Unit,
     onProfileClick: (String) -> Unit,
+    onEditClick: (() -> Unit)? = null,
     onDeleteClick: (() -> Unit)? = null,
+    onReportClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -65,7 +67,7 @@ fun PostItem(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Header: Profile Picture, Display Name, Relative Time, and Optional Overflow Menu
+        // Header: Profile Picture, Display Name, Relative Time, and Overflow Action Menu
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -101,39 +103,74 @@ fun PostItem(
                 }
             }
 
-            // Post Owner actions (delete)
-            if (post.isOwner && onDeleteClick != null) {
-                Box {
-                    IconButton(
-                        onClick = { showMenu = true },
-                        modifier = Modifier.size(32.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Post options",
-                            tint = MaterialTheme.calmTextTertiary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
+            // Overflow Options Menu:
+            // - Owner sees: Edit Post, Delete Post
+            // - Non-owner sees: Report Post
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Post options",
+                        tint = MaterialTheme.calmTextTertiary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
 
-                    DropdownMenu(
-                        expanded = showMenu,
-                        onDismissRequest = { showMenu = false },
-                        modifier = Modifier.background(MaterialTheme.colorScheme.surface)
-                    ) {
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = "Delete post",
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodyMedium
-                                )
-                            },
-                            onClick = {
-                                showMenu = false
-                                showDeleteConfirmDialog = true
-                            }
-                        )
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false },
+                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                ) {
+                    if (post.isOwner) {
+                        if (onEditClick != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Edit Post",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.calmTextPrimary
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onEditClick.invoke()
+                                }
+                            )
+                        }
+                        if (onDeleteClick != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Delete Post",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    showDeleteConfirmDialog = true
+                                }
+                            )
+                        }
+                    } else {
+                        if (onReportClick != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        text = "Report Post",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onReportClick.invoke()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -193,75 +230,75 @@ fun PostItem(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(16.dp))
-                    .clickable { onLikeClick() }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(
-                    imageVector = if (post.isLikedByCurrentUser) {
-                        Icons.Filled.Favorite
-                    } else {
-                        Icons.Outlined.FavoriteBorder
-                    },
-                    contentDescription = if (post.isLikedByCurrentUser) "Unlike" else "Like",
-                    tint = if (post.isLikedByCurrentUser) LikeActive else LikeInactive,
-                    modifier = Modifier.size(18.dp)
-                )
+                .clickable { onLikeClick() }
+                .padding(horizontal = 8.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = if (post.isLikedByCurrentUser) {
+                    Icons.Filled.Favorite
+                } else {
+                    Icons.Outlined.FavoriteBorder
+                },
+                contentDescription = if (post.isLikedByCurrentUser) "Unlike" else "Like",
+                tint = if (post.isLikedByCurrentUser) LikeActive else LikeInactive,
+                modifier = Modifier.size(18.dp)
+            )
 
-                // STRICT PRODUCT PRIVACY RULE:
-                // Only display like count if current user is the owner of this post.
-                if (post.isOwner && post.ownerLikeCount != null) {
-                    Spacer(modifier = Modifier.width(5.dp))
-                    Text(
-                        text = "${post.ownerLikeCount}",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                        color = MaterialTheme.calmTextSecondary
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-        HorizontalDivider(
-            thickness = 0.5.dp,
-            color = MaterialTheme.calmBorderSubtle
-        )
-    }
-
-    if (showDeleteConfirmDialog) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirmDialog = false },
-            title = {
+            // STRICT PRODUCT PRIVACY RULE:
+            // Only display like count if current user is the owner of this post.
+            if (post.isOwner && post.ownerLikeCount != null) {
+                Spacer(modifier = Modifier.width(5.dp))
                 Text(
-                    text = "Delete post?",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.calmTextPrimary
-                )
-            },
-            text = {
-                Text(
-                    text = "This will permanently delete this post.",
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = "${post.ownerLikeCount}",
+                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
                     color = MaterialTheme.calmTextSecondary
                 )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDeleteConfirmDialog = false
-                        onDeleteClick?.invoke()
-                    }
-                ) {
-                    Text("Delete", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirmDialog = false }) {
-                    Text("Cancel", color = MaterialTheme.calmTextSecondary)
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(14.dp)
-        )
+            }
+        }
     }
+
+    Spacer(modifier = Modifier.height(10.dp))
+    HorizontalDivider(
+        thickness = 0.5.dp,
+        color = MaterialTheme.calmBorderSubtle
+    )
+}
+
+if (showDeleteConfirmDialog) {
+    AlertDialog(
+        onDismissRequest = { showDeleteConfirmDialog = false },
+        title = {
+            Text(
+                text = "Delete this post?",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.calmTextPrimary
+            )
+        },
+        text = {
+            Text(
+                text = "This action cannot be undone.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.calmTextSecondary
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    showDeleteConfirmDialog = false
+                    onDeleteClick?.invoke()
+                }
+            ) {
+                Text("Delete", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                Text("Cancel", color = MaterialTheme.calmTextSecondary)
+            }
+        },
+        containerColor = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(14.dp)
+    )
+}
 }

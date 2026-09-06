@@ -37,7 +37,8 @@ data class CreatePostUiState(
 
 class CreatePostViewModel(
     private val postRepository: PostRepository = PostRepository(),
-    private val authRepository: AuthRepository = AuthRepository()
+    private val authRepository: AuthRepository = AuthRepository(),
+    private val profileRepository: com.example.anubhav.data.repository.ProfileRepository = com.example.anubhav.data.repository.ProfileRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CreatePostUiState())
@@ -60,7 +61,7 @@ class CreatePostViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isCompressing = true, selectedImageUri = uri, error = null) }
-            val compressResult = ImageCompressor.compressImageWithDetails(context, uri)
+            val compressResult = ImageCompressor.compressPostImage(context, uri)
             compressResult.fold(
                 onSuccess = { compressedBytes ->
                     _uiState.update {
@@ -107,6 +108,23 @@ class CreatePostViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isPosting = true, error = null) }
+
+            // Verify user moderation status
+            val profile = profileRepository.getProfile(currentUserId).getOrNull()
+            if (profile != null) {
+                if (profile.isPermanentlyBanned()) {
+                    _uiState.update { it.copy(isPosting = false, error = "Your account has been permanently banned.") }
+                    return@launch
+                }
+                if (profile.isTemporarilySuspended()) {
+                    _uiState.update { it.copy(isPosting = false, error = "Your account is temporarily suspended until ${profile.suspendedUntil?.take(10)}.") }
+                    return@launch
+                }
+                if (profile.isTemporarilyRestricted()) {
+                    _uiState.update { it.copy(isPosting = false, error = "Your account is temporarily restricted from posting until ${profile.restrictedUntil?.take(10)}.") }
+                    return@launch
+                }
+            }
 
             val result = if (state.isTextMode) {
                 postRepository.createTextPost(currentUserId, state.textContent)

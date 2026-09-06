@@ -22,3 +22,6 @@ val LikeInactive = Color(0xFF757D86)
 
 val CalmError = Color(0xFFB3261E)
 val CalmSuccess = Color(0xFF2E7D32)
+val CalmSuccessLight = Color(0xFF81C784)
+val CalmWarning = Color(0xFFE65100)
+val CalmWarningLight = Color(0xFFFFB74D)

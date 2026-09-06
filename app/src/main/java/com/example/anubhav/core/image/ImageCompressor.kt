@@ -17,24 +17,55 @@ import kotlin.math.roundToInt
 object ImageCompressor {
 
     private const val TAG = "ImageCompressor"
-    private const val MAX_WIDTH = 1280
-    private const val MAX_HEIGHT = 1280
-    private const val COMPRESSION_QUALITY = 70
+    const val MAX_POST_WIDTH = 1280
+    const val MAX_POST_HEIGHT = 1280
+    const val MAX_AVATAR_WIDTH = 400
+    const val MAX_AVATAR_HEIGHT = 400
+    const val COMPRESSION_QUALITY = 70
 
     /**
-     * Resizes and compresses an image from a given Uri.
-     * Guarantees max dimensions <= 1280x1280, 70% JPEG quality,
-     * strips metadata, and handles EXIF rotation and flipping.
+     * Dedicated pipeline for post images (max 1280x1280, 70% JPEG quality).
+     */
+    suspend fun compressPostImage(context: Context, uri: Uri): Result<ByteArray> {
+        return compressImageWithDimensions(context, uri, MAX_POST_WIDTH, MAX_POST_HEIGHT, COMPRESSION_QUALITY)
+    }
+
+    /**
+     * Dedicated pipeline for profile/avatar images (max 400x400, 70% JPEG quality).
+     * Reduces storage and bandwidth by ~75% while keeping pin-sharp rendering at 38dp-72dp.
+     */
+    suspend fun compressProfileImage(context: Context, uri: Uri): Result<ByteArray> {
+        return compressImageWithDimensions(context, uri, MAX_AVATAR_WIDTH, MAX_AVATAR_HEIGHT, COMPRESSION_QUALITY)
+    }
+
+    /**
+     * Resizes and compresses an image from a given Uri. Backward-compatible delegator.
      */
     suspend fun compressImage(context: Context, uri: Uri): ByteArray? {
-        val result = compressImageWithDetails(context, uri)
+        val result = compressPostImage(context, uri)
         return result.getOrNull()
     }
 
     /**
      * Resizes and compresses an image from a given Uri, returning a Result with technical failure details.
+     * Backward-compatible delegator targeting post dimensions.
      */
-    suspend fun compressImageWithDetails(context: Context, uri: Uri): Result<ByteArray> = withContext(Dispatchers.IO) {
+    suspend fun compressImageWithDetails(context: Context, uri: Uri): Result<ByteArray> {
+        return compressPostImage(context, uri)
+    }
+
+    /**
+     * Resizes and compresses an image from a given Uri with custom bounding dimensions.
+     * Guarantees max dimensions <= maxWidth x maxHeight, specified JPEG quality,
+     * strips metadata, and handles EXIF rotation and flipping.
+     */
+    suspend fun compressImageWithDimensions(
+        context: Context,
+        uri: Uri,
+        maxWidth: Int,
+        maxHeight: Int,
+        quality: Int = COMPRESSION_QUALITY
+    ): Result<ByteArray> = withContext(Dispatchers.IO) {
         var tempFile: File? = null
         try {
             // 1. Safely copy the content stream to a temporary cache file once
@@ -73,7 +104,7 @@ object ImageCompressor {
             Log.d(TAG, "Original image dimensions: ${originalWidth}x${originalHeight}, size: ${tempFile.length()} bytes")
 
             // 4. Compute inSampleSize
-            var sampleSize = calculateInSampleSize(originalWidth, originalHeight, MAX_WIDTH, MAX_HEIGHT)
+            var sampleSize = calculateInSampleSize(originalWidth, originalHeight, maxWidth, maxHeight)
 
             // 5. Decode downsampled bitmap with OOM recovery
             var sampledBitmap: Bitmap? = null
@@ -124,12 +155,12 @@ object ImageCompressor {
                 }
             }
 
-            // 7. Scale precisely to fit within MAX_WIDTH x MAX_HEIGHT preserving aspect ratio
+            // 7. Scale precisely to fit within maxWidth x maxHeight preserving aspect ratio
             val currentWidth = orientedBitmap.width
             val currentHeight = orientedBitmap.height
             val scale = min(
-                MAX_WIDTH.toFloat() / currentWidth,
-                MAX_HEIGHT.toFloat() / currentHeight
+                maxWidth.toFloat() / currentWidth,
+                maxHeight.toFloat() / currentHeight
             )
 
             val finalBitmap = if (scale < 1.0f) {
@@ -150,8 +181,10 @@ object ImageCompressor {
             }
 
             // 8. Compress into JPEG ByteArray
+            val outWidth = finalBitmap.width
+            val outHeight = finalBitmap.height
             val outputStream = ByteArrayOutputStream()
-            val compressed = finalBitmap.compress(Bitmap.CompressFormat.JPEG, COMPRESSION_QUALITY, outputStream)
+            val compressed = finalBitmap.compress(Bitmap.CompressFormat.JPEG, quality, outputStream)
             finalBitmap.recycle()
 
             if (!compressed) {
@@ -160,11 +193,11 @@ object ImageCompressor {
             }
 
             val compressedBytes = outputStream.toByteArray()
-            Log.d(TAG, "Compressed successfully: ${compressedBytes.size} bytes (${finalBitmap.width}x${finalBitmap.height})")
+            Log.d(TAG, "Compressed successfully: ${compressedBytes.size} bytes (${outWidth}x${outHeight})")
             Result.success(compressedBytes)
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error in compressImageWithDetails", e)
+            Log.e(TAG, "Error in compressImageWithDimensions", e)
             Result.failure(e)
         } finally {
             try {

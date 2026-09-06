@@ -22,8 +22,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import com.example.anubhav.domain.model.PostWithAuthor
+import com.example.anubhav.presentation.report.ReportPostDialog
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -41,10 +45,12 @@ import com.example.anubhav.ui.theme.calmTextSecondary
 @Composable
 fun FeedScreen(
     onNavigateToProfile: (String) -> Unit,
+    onNavigateToEditPost: (String) -> Unit = {},
     viewModel: FeedViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
+    var reportingPost by remember { mutableStateOf<PostWithAuthor?>(null) }
 
     // Detect when user scrolls near the end for pagination
     val shouldLoadMore by remember {
@@ -126,9 +132,11 @@ fun FeedScreen(
                                 post = post,
                                 onLikeClick = { viewModel.toggleLike(post) },
                                 onProfileClick = onNavigateToProfile,
+                                onEditClick = { onNavigateToEditPost(post.id) },
                                 onDeleteClick = if (post.isOwner) {
                                     { viewModel.deletePost(post) }
-                                } else null
+                                } else null,
+                                onReportClick = { reportingPost = post }
                             )
                         }
 
@@ -150,5 +158,14 @@ fun FeedScreen(
                 }
             }
         }
+    }
+
+    reportingPost?.let { targetPost ->
+        ReportPostDialog(
+            postId = targetPost.id,
+            reportedUserId = targetPost.userId,
+            onDismiss = { reportingPost = null },
+            onReportSubmitted = { reportingPost = null }
+        )
     }
 }

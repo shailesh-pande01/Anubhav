@@ -21,6 +21,9 @@ data class ProfileUiState(
     val isRefreshing: Boolean = false,
     val profile: UserProfile? = null,
     val posts: List<PostWithAuthor> = emptyList(),
+    val isLoadingMorePosts: Boolean = false,
+    val hasMorePosts: Boolean = true,
+    val currentPostsPage: Int = 0,
     val error: String? = null,
     val isCurrentUser: Boolean = true,
     // Edit profile form state
@@ -38,39 +41,75 @@ data class ProfileUiState(
     val isUploadingAvatar: Boolean = false,
     val editError: String? = null,
     val isProfileSavedSuccess: Boolean = false,
-    val activeLikeOperations: Set<String> = emptySet()
+    val activeLikeOperations: Set<String> = emptySet(),
+    val isAdmin: Boolean = false,
+    val isDeletingAccount: Boolean = false,
+    val deleteAccountError: String? = null
 )
 
 class ProfileViewModel(
     private val profileRepository: ProfileRepository = ProfileRepository(),
     private val postRepository: PostRepository = PostRepository(),
-    private val authRepository: AuthRepository = AuthRepository()
+    private val authRepository: AuthRepository = AuthRepository(),
+    private val adminRepository: com.example.anubhav.data.repository.AdminRepository = com.example.anubhav.data.repository.AdminRepository()
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(ProfileUiState())
     val uiState: StateFlow<ProfileUiState> = _uiState.asStateFlow()
 
+    private val profilePageSize = 20
+    private var currentLoadedTargetId: String? = null
+
     fun loadProfile(userId: String?) {
         val currentUserId = authRepository.getCurrentUserId()
         val targetId = userId ?: currentUserId ?: return
         val isCurrent = (currentUserId != null && targetId == currentUserId)
+        currentLoadedTargetId = targetId
 
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, error = null, isCurrentUser = isCurrent) }
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    error = null,
+                    isCurrentUser = isCurrent,
+                    currentPostsPage = 0
+                )
+            }
 
             // 1. Fetch profile
             val profileResult = profileRepository.getProfile(targetId)
             val profile = profileResult.getOrNull()
+            profileResult.exceptionOrNull()?.let {
+                android.util.Log.e("ProfileViewModel", "Failed to load profile for $targetId", it)
+            }
 
-            // 2. Fetch user's posts
-            val postsResult = postRepository.getUserPosts(targetId, currentUserId)
+            // 2. Fetch user's posts (first page)
+            val postsResult = postRepository.getUserPosts(targetId, currentUserId, page = 0, pageSize = profilePageSize)
             val posts = postsResult.getOrNull() ?: emptyList()
+            postsResult.exceptionOrNull()?.let {
+                android.util.Log.e("ProfileViewModel", "Failed to load posts for $targetId", it)
+            }
+
+            // 3. If current user, check admin role
+            val isAdmin = if (isCurrent) {
+                adminRepository.checkIsAdmin().getOrNull() ?: false
+            } else false
+
+            val errorMsg = when {
+                profileResult.isFailure -> "Couldn't load profile. Please check your connection."
+                postsResult.isFailure -> "Couldn't load posts. Please check your connection."
+                else -> null
+            }
 
             _uiState.update {
                 it.copy(
                     isLoading = false,
                     profile = profile,
                     posts = posts,
+                    hasMorePosts = posts.size >= profilePageSize,
+                    currentPostsPage = 0,
+                    isAdmin = isAdmin,
+                    error = errorMsg,
                     // If this is the current user and edit form hasn't been modified yet, sync it
                     editDisplayName = if (!it.isEditFormInitialized) profile?.displayName.orEmpty() else it.editDisplayName,
                     editUsername = if (!it.isEditFormInitialized) profile?.username.orEmpty() else it.editUsername,
@@ -82,6 +121,41 @@ class ProfileViewModel(
                     isEditFormInitialized = if (profile != null) true else it.isEditFormInitialized
                 )
             }
+        }
+    }
+
+    fun loadNextUserPostsPage() {
+        val state = _uiState.value
+        val targetId = currentLoadedTargetId ?: return
+        if (state.isLoadingMorePosts || !state.hasMorePosts || state.isLoading) {
+            return
+        }
+
+        viewModelScope.launch {
+            val nextPage = state.currentPostsPage + 1
+            _uiState.update { it.copy(isLoadingMorePosts = true) }
+            val currentUserId = authRepository.getCurrentUserId()
+            val result = postRepository.getUserPosts(
+                targetUserId = targetId,
+                currentUserId = currentUserId,
+                page = nextPage,
+                pageSize = profilePageSize
+            )
+            result.fold(
+                onSuccess = { newPosts ->
+                    _uiState.update {
+                        it.copy(
+                            isLoadingMorePosts = false,
+                            posts = it.posts + newPosts,
+                            hasMorePosts = newPosts.size >= profilePageSize,
+                            currentPostsPage = nextPage
+                        )
+                    }
+                },
+                onFailure = {
+                    _uiState.update { it.copy(isLoadingMorePosts = false) }
+                }
+            )
         }
     }
 
@@ -178,7 +252,7 @@ class ProfileViewModel(
             var finalImageUrl = state.editProfileImageUrl ?: state.profile?.profileImageUrl
             val pendingUri = state.pendingAvatarUri
             if (pendingUri != null) {
-                val compressResult = ImageCompressor.compressImageWithDetails(context, pendingUri)
+                val compressResult = ImageCompressor.compressProfileImage(context, pendingUri)
                 if (compressResult.isFailure) {
                     android.util.Log.e("ProfileViewModel", "Avatar compression failed", compressResult.exceptionOrNull())
                     _uiState.update {
@@ -199,7 +273,12 @@ class ProfileViewModel(
                     }
                     return@launch
                 }
-                val uploadResult = profileRepository.uploadProfileImage(currentUserId, compressedBytes)
+                val oldAvatarUrl = state.profile?.profileImageUrl
+                val uploadResult = profileRepository.uploadProfileImage(
+                    userId = currentUserId,
+                    imageBytes = compressedBytes,
+                    oldAvatarUrl = oldAvatarUrl
+                )
                 if (uploadResult.isFailure) {
                     val err = uploadResult.exceptionOrNull()
                     android.util.Log.e("ProfileViewModel", "Avatar upload failed", err)
@@ -322,5 +401,32 @@ class ProfileViewModel(
             authRepository.signOut()
             onLoggedOut()
         }
+    }
+
+    fun deleteAccount(onSuccess: () -> Unit) {
+        if (_uiState.value.isDeletingAccount) return
+
+        viewModelScope.launch {
+            _uiState.update { it.copy(isDeletingAccount = true, deleteAccountError = null) }
+            val result = authRepository.deleteAccount()
+            result.fold(
+                onSuccess = {
+                    _uiState.update { it.copy(isDeletingAccount = false, deleteAccountError = null) }
+                    onSuccess()
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(
+                            isDeletingAccount = false,
+                            deleteAccountError = error.message ?: "Couldn't delete your account. Please try again."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun clearDeleteAccountError() {
+        _uiState.update { it.copy(deleteAccountError = null) }
     }
 }

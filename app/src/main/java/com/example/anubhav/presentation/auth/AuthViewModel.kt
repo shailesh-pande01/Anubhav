@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.anubhav.data.repository.AuthRepository
 import com.example.anubhav.data.repository.ProfileRepository
+import com.example.anubhav.data.repository.RecoveryStatus
 import com.example.anubhav.domain.model.UserProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -28,7 +29,9 @@ data class AuthUiState(
     // Password reset state
     val resetEmail: String = "",
     val isSendingReset: Boolean = false,
+    val isResetEmailSent: Boolean = false,
     val resetSentMessage: String? = null,
+    val recoveryStatus: RecoveryStatus = RecoveryStatus.Idle,
     val newPassword: String = "",
     val confirmNewPassword: String = "",
     val isUpdatingPassword: Boolean = false,
@@ -43,6 +46,14 @@ class AuthViewModel(
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            authRepository.recoveryStatus.collect { status ->
+                _uiState.update { it.copy(recoveryStatus = status) }
+            }
+        }
+    }
 
     fun toggleMode() {
         _uiState.update {
@@ -69,11 +80,20 @@ class AuthViewModel(
     fun onNewPasswordChange(value: String) = _uiState.update { it.copy(newPassword = value, passwordUpdateError = null) }
     fun onConfirmNewPasswordChange(value: String) = _uiState.update { it.copy(confirmNewPassword = value, passwordUpdateError = null) }
 
+    fun onDismissResetEmailSent() {
+        _uiState.update { it.copy(isResetEmailSent = false, resetSentMessage = null, resetEmail = "") }
+    }
+
     fun sendPasswordReset() {
         val state = _uiState.value
         val email = state.resetEmail.trim()
 
-        if (email.isBlank() || !android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+        if (email.isBlank()) {
+            _uiState.update { it.copy(error = "Please enter your email address.") }
+            return
+        }
+
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
             _uiState.update { it.copy(error = "Please enter a valid email address.") }
             return
         }
@@ -86,7 +106,8 @@ class AuthViewModel(
                     _uiState.update {
                         it.copy(
                             isSendingReset = false,
-                            resetSentMessage = "Password reset email sent. Check your inbox."
+                            isResetEmailSent = true,
+                            resetSentMessage = "We've sent a password reset link to your email address."
                         )
                     }
                 },
@@ -104,8 +125,20 @@ class AuthViewModel(
 
     fun updatePassword(onSuccess: () -> Unit) {
         val state = _uiState.value
-        val newPassword = state.newPassword.trim()
-        val confirm = state.confirmNewPassword.trim()
+        if (state.isUpdatingPassword) return
+
+        val newPassword = state.newPassword
+        val confirm = state.confirmNewPassword
+
+        if (newPassword.isBlank()) {
+            _uiState.update { it.copy(passwordUpdateError = "Password cannot be empty.") }
+            return
+        }
+
+        if (confirm.isBlank()) {
+            _uiState.update { it.copy(passwordUpdateError = "Please confirm your new password.") }
+            return
+        }
 
         if (newPassword.length < 6) {
             _uiState.update { it.copy(passwordUpdateError = "Password must be at least 6 characters.") }
@@ -119,7 +152,7 @@ class AuthViewModel(
 
         viewModelScope.launch {
             _uiState.update { it.copy(isUpdatingPassword = true, passwordUpdateError = null) }
-            val result = authRepository.updatePassword(newPassword)
+            val result = authRepository.updatePassword(newPassword.trim())
             result.fold(
                 onSuccess = {
                     _uiState.update {
@@ -136,11 +169,28 @@ class AuthViewModel(
                     _uiState.update {
                         it.copy(
                             isUpdatingPassword = false,
-                            passwordUpdateError = err.localizedMessage ?: "Failed to update password. Please try again."
+                            passwordUpdateError = err.localizedMessage ?: "Couldn't update your password. Please try again."
                         )
                     }
                 }
             )
+        }
+    }
+
+    fun clearRecoveryAndBackToLogin(onNavigate: () -> Unit) {
+        viewModelScope.launch {
+            authRepository.clearRecoveryState()
+            _uiState.update {
+                it.copy(
+                    recoveryStatus = RecoveryStatus.Idle,
+                    newPassword = "",
+                    confirmNewPassword = "",
+                    isUpdatingPassword = false,
+                    passwordUpdateSuccess = false,
+                    passwordUpdateError = null
+                )
+            }
+            onNavigate()
         }
     }
 
@@ -149,6 +199,7 @@ class AuthViewModel(
             it.copy(
                 resetEmail = "",
                 isSendingReset = false,
+                isResetEmailSent = false,
                 resetSentMessage = null,
                 newPassword = "",
                 confirmNewPassword = "",
@@ -176,7 +227,7 @@ class AuthViewModel(
                 _uiState.update { it.copy(error = "Please enter your email or username.") }
                 return
             }
-            val isEmail = android.util.Patterns.EMAIL_ADDRESS.matcher(identifier).matches() || identifier.contains("@")
+            val isEmail = isEmailIdentifier(identifier)
             if (!isEmail && (identifier.length < 3 || identifier.length > 30 || !identifier.matches(Regex("^[a-zA-Z0-9_.]+$")))) {
                 _uiState.update { it.copy(error = "Please enter a valid email address or username.") }
                 return
@@ -290,6 +341,18 @@ class AuthViewModel(
                     }
                 )
             }
+        }
+    }
+
+    companion object {
+        /**
+         * Discriminate between email address and username inputs.
+         * Usernames only allow alphanumeric, dot, and underscore; emails require '@' and a domain '.'.
+         */
+        fun isEmailIdentifier(identifier: String): Boolean {
+            val trimmed = identifier.trim()
+            val atIndex = trimmed.indexOf('@')
+            return atIndex > 0 && atIndex < trimmed.length - 1 && trimmed.substring(atIndex + 1).contains(".")
         }
     }
 }

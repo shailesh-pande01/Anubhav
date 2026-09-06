@@ -56,6 +56,12 @@ val MaterialTheme.calmTextTertiary: Color
 val MaterialTheme.calmBorderSubtle: Color
     @Composable get() = colorScheme.outlineVariant
 
+val MaterialTheme.calmSuccess: Color
+    @Composable get() = if (isSystemInDarkTheme()) CalmSuccessLight else CalmSuccess
+
+val MaterialTheme.calmWarning: Color
+    @Composable get() = if (isSystemInDarkTheme()) CalmWarningLight else CalmWarning
+
 @Composable
 fun AnubhavTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),

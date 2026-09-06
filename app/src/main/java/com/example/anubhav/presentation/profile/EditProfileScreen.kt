@@ -14,10 +14,13 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -28,16 +31,22 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.anubhav.presentation.components.AvatarImage
 import com.example.anubhav.presentation.components.CalmButton
 import com.example.anubhav.presentation.components.CalmLoadingIndicator
+import com.example.anubhav.presentation.components.CalmOutlinedButton
 import com.example.anubhav.presentation.components.CalmTextField
 import com.example.anubhav.presentation.components.CalmTopBar
+import com.example.anubhav.ui.theme.calmBorderSubtle
 import com.example.anubhav.ui.theme.calmTextPrimary
 import com.example.anubhav.ui.theme.calmTextSecondary
 
@@ -45,10 +54,12 @@ import com.example.anubhav.ui.theme.calmTextSecondary
 fun EditProfileScreen(
     onBack: () -> Unit,
     onProfileSaved: () -> Unit,
+    onAccountDeleted: () -> Unit = {},
     viewModel: ProfileViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    var showDeleteAccountDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         viewModel.loadProfileForEditing()
@@ -218,12 +229,108 @@ fun EditProfileScreen(
             CalmButton(
                 text = "Save",
                 onClick = { viewModel.saveProfile(context, onProfileSaved) },
-                enabled = !state.isSavingProfile,
+                enabled = !state.isSavingProfile && !state.isDeletingAccount,
                 isLoading = state.isSavingProfile
             )
 
+            Spacer(modifier = Modifier.height(32.dp))
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.calmBorderSubtle)
             Spacer(modifier = Modifier.height(24.dp))
+
+            Text(
+                text = "Account",
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.calmTextPrimary,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Permanently delete your account and all associated data.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.calmTextSecondary,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            CalmOutlinedButton(
+                text = "Delete Account",
+                onClick = { showDeleteAccountDialog = true },
+                enabled = !state.isSavingProfile && !state.isDeletingAccount,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
-}
+    }
+
+    if (showDeleteAccountDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                if (!state.isDeletingAccount) {
+                    showDeleteAccountDialog = false
+                    viewModel.clearDeleteAccountError()
+                }
+            },
+            title = {
+                Text("Delete account?", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.calmTextPrimary)
+            },
+            text = {
+                Column {
+                    Text(
+                        text = "This will permanently delete your account, profile, posts, and associated data. This action cannot be undone.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.calmTextSecondary
+                    )
+                    if (state.deleteAccountError != null) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = state.deleteAccountError ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.deleteAccount(
+                            onSuccess = {
+                                showDeleteAccountDialog = false
+                                onAccountDeleted()
+                            }
+                        )
+                    },
+                    enabled = !state.isDeletingAccount
+                ) {
+                    if (state.isDeletingAccount) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        Text(
+                            text = "Delete account",
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteAccountDialog = false
+                        viewModel.clearDeleteAccountError()
+                    },
+                    enabled = !state.isDeletingAccount
+                ) {
+                    Text("Cancel", color = MaterialTheme.calmTextSecondary)
+                }
+            },
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(14.dp)
+        )
+    }
 }

@@ -63,80 +63,138 @@ fun ForgotPasswordScreen(
                 .padding(innerPadding)
                 .imePadding()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 28.dp, vertical = 24.dp),
-                horizontalAlignment = Alignment.Start
-            ) {
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Text(
-                    text = "Forgot password?",
-                    style = MaterialTheme.typography.titleLarge.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 22.sp
-                    ),
-                    color = MaterialTheme.calmTextPrimary
-                )
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Text(
-                    text = "Enter your email and we'll send you a password reset link.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.calmTextSecondary
-                )
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                CalmTextField(
-                    value = state.resetEmail,
-                    onValueChange = viewModel::onResetEmailChange,
-                    label = "Email",
-                    placeholder = "Enter your email"
-                )
-
-                if (state.error != null) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = state.error ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                }
-
-                if (state.resetSentMessage != null) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    Text(
-                        text = state.resetSentMessage ?: "",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(28.dp))
-
-                CalmButton(
-                    text = "Send reset link",
-                    onClick = { viewModel.sendPasswordReset() },
-                    isLoading = state.isSendingReset,
-                    enabled = !state.isSendingReset
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
+            if (state.isResetEmailSent) {
+                // Dedicated Confirmation State (Requirement 29)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 28.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.Start
                 ) {
-                    TextButton(onClick = onBack) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Check your email",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 22.sp
+                        ),
+                        color = MaterialTheme.calmTextPrimary
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "We've sent a password reset link to your email address.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.calmTextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Open the email and tap the reset link to create a new password.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.calmTextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(36.dp))
+
+                    CalmButton(
+                        text = "Back to login",
+                        onClick = {
+                            viewModel.onDismissResetEmailSent()
+                            onBack()
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TextButton(
+                            onClick = { viewModel.sendPasswordReset() },
+                            enabled = !state.isSendingReset
+                        ) {
+                            Text(
+                                text = if (state.isSendingReset) "Resending..." else "Resend email",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.calmTextSecondary
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Input Form State
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 28.dp, vertical = 24.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Forgot password?",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 22.sp
+                        ),
+                        color = MaterialTheme.calmTextPrimary
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Enter your email and we'll send you a link to reset your password.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.calmTextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    CalmTextField(
+                        value = state.resetEmail,
+                        onValueChange = viewModel::onResetEmailChange,
+                        label = "Email",
+                        placeholder = "Enter your email"
+                    )
+
+                    if (state.error != null) {
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "Return to log in",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.calmTextSecondary
+                            text = state.error ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
                         )
+                    }
+
+                    Spacer(modifier = Modifier.height(28.dp))
+
+                    CalmButton(
+                        text = "Send reset link",
+                        onClick = { viewModel.sendPasswordReset() },
+                        isLoading = state.isSendingReset,
+                        enabled = !state.isSendingReset
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        TextButton(onClick = onBack) {
+                            Text(
+                                text = "Back to login",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.calmTextSecondary
+                            )
+                        }
                     }
                 }
             }

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.HorizontalDivider
@@ -21,14 +22,21 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import com.example.anubhav.domain.model.PostWithAuthor
+import com.example.anubhav.presentation.report.ReportPostDialog
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.anubhav.presentation.components.AvatarImage
+import com.example.anubhav.presentation.components.CalmButton
 import com.example.anubhav.presentation.components.CalmEmptyState
 import com.example.anubhav.presentation.components.CalmLoadingIndicator
 import com.example.anubhav.presentation.components.CalmTopBar
@@ -44,9 +52,25 @@ fun UserProfileScreen(
     viewModel: ProfileViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
+    val listState = rememberLazyListState()
+    var reportingPost by remember { mutableStateOf<PostWithAuthor?>(null) }
 
     LaunchedEffect(userId) {
         viewModel.loadProfile(userId)
+    }
+
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItems = listState.layoutInfo.totalItemsCount
+            val lastVisibleItem = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisibleItem >= totalItems - 3
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore && state.hasMorePosts && !state.isLoadingMorePosts) {
+            viewModel.loadNextUserPostsPage()
+        }
     }
 
     Scaffold(
@@ -71,6 +95,7 @@ fun UserProfileScreen(
         } else {
             val profile = state.profile
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
@@ -173,7 +198,28 @@ fun UserProfileScreen(
                     }
                 }
 
-                if (state.posts.isEmpty()) {
+                if (state.error != null && state.posts.isEmpty()) {
+                    item {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = state.error ?: "Couldn't load posts.",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.calmTextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            CalmButton(
+                                text = "Try again",
+                                onClick = { viewModel.loadProfile(userId) },
+                                modifier = Modifier.fillMaxWidth(0.5f)
+                            )
+                        }
+                    }
+                } else if (state.posts.isEmpty() && !state.isLoading) {
                     item {
                         CalmEmptyState(
                             title = "No posts yet.",
@@ -190,7 +236,19 @@ fun UserProfileScreen(
                             post = post,
                             onLikeClick = { viewModel.toggleLike(post) },
                             onProfileClick = { /* already on this profile */ },
-                            onDeleteClick = null // Cannot delete other users' posts
+                            onEditClick = null,
+                            onDeleteClick = null,
+                            onReportClick = { reportingPost = post }
+                        )
+                    }
+                }
+
+                if (state.isLoadingMorePosts) {
+                    item {
+                        CalmLoadingIndicator(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
                         )
                     }
                 }
@@ -200,5 +258,14 @@ fun UserProfileScreen(
                 }
             }
         }
+    }
+
+    reportingPost?.let { targetPost ->
+        ReportPostDialog(
+            postId = targetPost.id,
+            reportedUserId = targetPost.userId,
+            onDismiss = { reportingPost = null },
+            onReportSubmitted = { reportingPost = null }
+        )
     }
 }
